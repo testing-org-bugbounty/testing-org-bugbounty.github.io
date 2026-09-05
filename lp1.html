@@ -22,13 +22,13 @@ function b64uToBuf(s){
   for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
   return u.buffer;
 }
-function hex(buf){return [...new Uint8Array(adStart(2,'0')).join('');}
+function hex(buf){return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');}
 
 new MutationObserver(() => {
   const n = document.querySelectorAll('[data-lastpass-icon-root]').length;
-  document.getElementById('probe').textConte
+  document.getElementById('probe').textContent =
     'icon_root_count: ' + n + ' at t+' + Math.round(performance.now()) + 'ms';
-}).observe(document.documentElement, {childL
+}).observe(document.documentElement, {childList:true, subtree:true});
 
 async function go(withAllow){
   const out = document.getElementById('out');
@@ -38,25 +38,25 @@ async function go(withAllow){
     challenge: crypto.getRandomValues(new Uint8Array(32)),
     userVerification: "discouraged"
   };
-  if (withAllow) pk.allowCredentials = [{typ(CRED_ID)}];
+  if (withAllow) pk.allowCredentials = [{type:"public-key", id: b64uToBuf(CRED_ID)}];
   try{
-    const c = await navigator.credentials.ge
+    const c = await navigator.credentials.get({publicKey: pk});
     const dt = Math.round(performance.now() - t0);
     out.textContent =
       'elapsed_ms: ' + dt +
-      '\nallowCredentials_sent: ' + withAllo
+      '\nallowCredentials_sent: ' + withAllow +
       '\npage_origin: ' + location.origin +
       '\nrequested_rpId: (omitted)' +
       '\ncredentialId: ' + c.id +
-      '\nuserHandle: ' + new TextDecoder().d+
+      '\nuserHandle: ' + new TextDecoder().decode(c.response.userHandle) +
       '\nsignature_bytes: ' + new Uint8Array(c.response.signature).length +
-      '\nrpIdHash_hex: ' + hex(c.response.au+
+      '\nrpIdHash_hex: ' + hex(c.response.authenticatorData.slice(0,32)) +
       '\nclientDataJSON: ' + new TextDecoder().decode(c.response.clientDataJSON);
   }catch(e){
     const dt = Math.round(performance.now() - t0);
     out.textContent =
       'elapsed_ms: ' + dt +
-      '\nallowCredentials_sent: ' + withAllo
+      '\nallowCredentials_sent: ' + withAllow +
       '\npage_origin: ' + location.origin +
       '\nrejected_name: ' + e.name +
       '\nrejected_message: ' + e.message;
