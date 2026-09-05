@@ -1,0 +1,54 @@
+<title>Attack page</title>
+<h2>Attack page</h2>
+<p>This page's origin: <b><span id="org"></span></b></p>
+
+<p>Credential id from step 1:
+<input id="cred" size="80" placeholder="paste the credentialId here"></p>
+
+<p>
+<button onclick="go(true)">Case 1: request naming that credential id</button>
+<button onclick="go(false)">Case 2: same request, credential id omitted</button>
+</p>
+<pre id="out"></pre>
+
+<script>
+document.getElementById('org').textContent = location.origin;
+if (location.hash.length > 1) document.getElementById('cred').value = decodeURIComponent(location.hash.slice(1));
+function b64uToBuf(s){
+  s = s.replace(/-/g,'+').replace(/_/g,'/');
+  const pad = s.length % 4 ? '='.repeat(4 - s.length % 4) : '';
+  const bin = atob(s + pad);
+  const u = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) u[i] = bin.charCodeAt(i);
+  return u.buffer;
+}
+function hex(b){return [...new Uint8Array(b)].map(x=>x.toString(16).padStart(2,'0')).join('');}
+async function go(withAllow){
+  const out = document.getElementById('out');
+  const id  = document.getElementById('cred').value.trim();
+  if (withAllow && !id) { out.textContent = 'paste the credentialId from step 1 first'; return; }
+  out.textContent = 'requesting ...';
+  const t0 = performance.now();
+  const pk = { challenge: crypto.getRandomValues(new Uint8Array(32)), userVerification: "discouraged" };
+  if (withAllow) pk.allowCredentials = [{type:"public-key", id: b64uToBuf(id)}];
+  try{
+    const c = await navigator.credentials.get({publicKey: pk});
+    out.textContent =
+      'elapsed_ms: ' + Math.round(performance.now()-t0) +
+      '\nallowCredentials_sent: ' + withAllow +
+      '\npage_origin: ' + location.origin +
+      '\nrequested_rpId: (omitted)' +
+      '\ncredentialId: ' + c.id +
+      '\nsignature_bytes: ' + new Uint8Array(c.response.signature).length +
+      '\nrpIdHash_hex: ' + hex(c.response.authenticatorData.slice(0,32)) +
+      '\nclientDataJSON: ' + new TextDecoder().decode(c.response.clientDataJSON);
+  }catch(e){
+    out.textContent =
+      'elapsed_ms: ' + Math.round(performance.now()-t0) +
+      '\nallowCredentials_sent: ' + withAllow +
+      '\npage_origin: ' + location.origin +
+      '\nrejected_name: ' + e.name +
+      '\nrejected_message: ' + e.message;
+  }
+}
+</script>
